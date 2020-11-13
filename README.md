@@ -1,8 +1,6 @@
 # rabbit
 rabbitMq的使用例子
 
-rabbitMq的使用例子
-
 rabbit_c2： 主要演示消费者手工ACK的使用 
 
 
