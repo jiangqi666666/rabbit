@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:rabbit="http://www.springframework.org/schema/rabbit"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-4.3.xsd
+		http://www.springframework.org/schema/rabbit http://www.springframework.org/schema/rabbit/spring-rabbit-1.7.xsd">
+
+<!-- 
+#spring.rabbitmq.dynamic 是否创建AmqpAdmin bean. 默认为: true
+#spring.rabbitmq.listener.acknowledge-mode 指定Acknowledge的模式.
+#spring.rabbitmq.listener.auto-startup 是否在启动时就启动mq，默认: true
+#spring.rabbitmq.listener.concurrency 指定最小的消费者数量.
+#spring.rabbitmq.listener.max-concurrency 指定最大的消费者数量.
+#spring.rabbitmq.listener.prefetch 指定一个请求能处理多少个消息，如果有事务的话，必须大于等于transaction数量.
+#spring.rabbitmq.listener.transaction-size 指定一个事务处理的消息数量，最好是小于等于prefetch的数量.
+#spring.rabbitmq.requested-heartbeat 指定心跳超时，0为不指定.
+#spring.rabbitmq.ssl.enabled 是否开始SSL，默认: false
+#spring.rabbitmq.ssl.key-store 指定持有SSL certificate的key store的路径
+#spring.rabbitmq.ssl.key-store-password 指定访问key store的密码.
+#spring.rabbitmq.ssl.trust-store 指定持有SSL certificates的Trust store.
+#spring.rabbitmq.ssl.trust-store-password 指定访问trust store的密码.
+ -->
+
+	<bean id="connectionFactory"
+		class="org.springframework.amqp.rabbit.connection.CachingConnectionFactory">
+		<property name="addresses"
+			value="192.168.3.101:5672,192.168.3.102:5672" />
+		<property name="virtualHost" value="jqtest" />
+		<property name="username" value="jq" />
+		<property name="password" value="jq" />
+		<!-- 缓存模式 CONNECTION，CHANNEL，默认的缓存模式是CHANNEL。 当缓存模式是 CONNECTION时, 队列的自动声明等等 
+			(参考 the section called “Automatic Declaration of Exchanges, Queues and Bindings”) 
+			将不再支持。 在框架(如RabbitTemplate) 中使用的通道将会可靠地返回到缓存中.如果在框架外创建了通道 (如.直接访问connection(s)并调用 
+			createChannel() ), 你必须可靠地返回它们(通过关闭),也许需要在 finally 块中以防止耗尽通道. -->
+		<property name="cacheMode" value="CHANNEL" />
+		<!-- 默认通道缓存25,多线程环境中，较小的缓存意味着通道的创建和关闭将以很高的速率运行.加大默认缓存大小可避免这种开销 如果达到了限制,调用线程将会阻塞，直到某个通道可用或者超时, 
+			在后者的情况中，将抛出 AmqpTimeoutException异常. -->
+		<property name="channelCacheSize" value="30" />
+		<!-- channelCheckoutTimeout属性. 当此属性的值大于０时， channelCacheSize会变成连接上创建通道数目的限制. -->
+		<property name="channelCheckoutTimeout" value="200" />
+		<!-- 发布确认必须配置在CachingConnectionFactory上 -->
+		<property name="publisherConfirms" value="true" />
+		<!-- 消息发送失败回调。 -->
+		<property name="publisherReturns" value="true" />
+	</bean>
+
+	<!-- confirm回调 -->
+	<bean id="confirmCallback" class="com.confirm.MsgSendConfirmCallBack" />
+
+	<!-- ReturnCallback回调 -->
+	<bean id="sendReturnCallback" class="com.confirm.MsgSendReturnCallback" />
+
+	<bean id="rabbitTemplate" class="org.springframework.amqp.rabbit.core.RabbitTemplate">
+		<constructor-arg name="connectionFactory" ref="connectionFactory"  />
+		<property name="exchange" value="jq.exchange" />
+		<!-- 也可以在发送的时候手动设置routing key -->
+		<!-- <property name="routingKey" value="${rabbitmq.msg.routing}"/> -->
+		<!-- 定义回调方法，ReturnCallBack使用时需要通过RabbitTemplate 的setMandatory方法设置变量mandatoryExpression的值， 
+			该值可以是一个表达式或一个Boolean值。 当为TRUE时，如果消息无法发送到指定的消息队列那么ReturnCallBack回调方法会被调用 ,
+			比如：exchange  不能通过 routingKey 找到对应的queue，则会回调-->
+		<property name="returnCallback" ref="sendReturnCallback" />
+		<!--消息确认回调 , 若找不到Exchange时，confirmCallBack会被触发，而returnCallBack不会被触发 -->
+		<property name="confirmCallback" ref="confirmCallback" />
+		<!--returnCallback需要设置mandatory=true，否则Exchange直接抛弃消息，不回调 -->
+		<property name="mandatory"  value="true" />
+	</bean>
+	
+	<!-- 消息接收者 -->
+	<bean id="messageReceiver" 	class="com.confirm.MessageConsumer">
+	</bean>
+	
+	<!--定义接收队列  exclusive是指是否私有队列-->
+	<rabbit:queue name="jq.queue" durable="true" auto-delete="false" exclusive="false" />
+	
+	<!-- queue litener  观察 监听模式 当有消息到达时会通知监听在对应的队列上的监听对象
+		acknowledge="manual"设置消费者的ACK为手工模式，即消费者必须明确返回ack
+		channel-transacted="false"  表示不使用外部事物
+		prefetch  rabbit在往消费者投递消息时判断，如果未ack的消息大于50，则不向此消费者投递消息（指定一个请求能处理多少个消息，如果有事务的话，必须大于等于transaction数量.）,此值设置过高会加大消息非正常处理的问题
+		auto-startup 是否在启动时就启动mq，默认: true
+		concurrency 指定最小的消费者数量.
+		max-concurrency 指定最大的消费者数量.
+		transaction-size 指定一个事务处理的消息数量，最好是小于等于prefetch的数量.
+	-->
+    <rabbit:listener-container connection-factory="connectionFactory"  acknowledge="manual" channel-transacted="false"  
+    	prefetch="50" auto-startup="false" concurrency="2" max-concurrency="20" >
+             <rabbit:listener queues="jq.queue"  ref="messageReceiver"/>
+    </rabbit:listener-container>
+
+</beans>

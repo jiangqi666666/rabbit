@@ -1,0 +1,1 @@
+http://git.oschina.net/aaron_hgc/rabbitmq-access
